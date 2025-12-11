@@ -1,4 +1,4 @@
-import { Activity, Mic, Loader2, CircleAlert } from 'lucide-react';
+import { Activity, Mic, Loader2 } from 'lucide-react';
 
 interface StatusIndicatorProps {
   status: 'ready' | 'recording' | 'processing';

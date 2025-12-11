@@ -125,7 +125,7 @@ export function formatDateForSpeech(dateString?: string): string {
         return dateString || '';
     }
     
-    const [year, month, day] = dateString.split('-');
+    const [, month, day] = dateString.split('-');
     const monthNames = [
         'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
         'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
@@ -143,7 +143,7 @@ export function formatDateForDisplay(dateString?: string): string {
         return dateString || '';
     }
     
-    const [year, month, day] = dateString.split('-');
+    const [, month, day] = dateString.split('-');
     const monthNames = [
         'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
         'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
@@ -234,13 +234,9 @@ export function getUrgencyColor(urgency: number): string {
     const baseG = 245;
     const baseB = 245;
     
-    const targetR = 255;
-    const targetG = 200;
-    const targetB = 200;
-    
     const r = baseR;
-    const g = Math.round(baseG - (baseG - targetG) * urgency);
-    const b = Math.round(baseB - (baseB - targetB) * urgency);
+    const g = Math.round(baseG - (baseG - 200) * urgency);
+    const b = Math.round(baseB - (baseB - 200) * urgency);
     
     return `rgb(${r}, ${g}, ${b})`;
 }
