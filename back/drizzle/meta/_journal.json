@@ -8,6 +8,20 @@
       "when": 1764706355769,
       "tag": "0000_useful_thunderbird",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1765371625791,
+      "tag": "0001_add_webauthn",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1765373908781,
+      "tag": "0002_add_algo",
+      "breakpoints": true
     }
   ]
 }

@@ -2,9 +2,40 @@ import { useSpeechAssistant } from './hooks/useSpeechAssistant';
 import { getReminderIcon } from './utils/reminderUtils';
 import { formatDateForDisplay, calculateReminderUrgency, getUrgencyColor } from './utils/dateUtils';
 import './App.css';
+import { useState, useEffect } from 'react';
+import { Login } from './components/Login';
 
 function App() {
-  const { status, feedback, isRecording, toggleRecording, reminders, showRemindersList, showSuccessAnimation, isGeneratingAudio, loadingReminderId, isLoadingReminders, speakReminder, closeRemindersList, handleDeleteReminder, deleteConfirmation, confirmDeleteReminder, cancelDeleteReminder } = useSpeechAssistant();
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    return localStorage.getItem('isLoggedIn') === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('isLoggedIn', String(isLoggedIn));
+  }, [isLoggedIn]);
+
+  const {
+    status,
+    feedback,
+    isRecording,
+    toggleRecording,
+    reminders,
+    showRemindersList,
+    showSuccessAnimation,
+    isGeneratingAudio,
+    loadingReminderId,
+    isLoadingReminders,
+    speakReminder,
+    closeRemindersList,
+    handleDeleteReminder,
+    deleteConfirmation,
+    confirmDeleteReminder,
+    cancelDeleteReminder,
+  } = useSpeechAssistant();
+
+  if (!isLoggedIn) {
+    return <Login onLoginSuccess={() => setIsLoggedIn(true)} />;
+  }
 
   const getStatusIconClass = () => {
     switch (status) {
@@ -26,7 +57,6 @@ function App() {
 
   return (
     <div className="container">
-      {/* Confirmação de exclusão - sempre visível quando ativa */}
       {deleteConfirmation && (
         <div className="delete-confirmation-overlay">
           <div className="delete-confirmation-modal">
@@ -53,10 +83,8 @@ function App() {
         </div>
       )}
 
-      {/* Se estiver carregando lembretes, não mostrar nada além da animação */}
       {isLoadingReminders ? (
         <>
-          {/* Animação de carregamento ao listar lembretes */}
           <div className="loading-animation-overlay">
             <div className="loading-animation">
               <div className="loading-spinner">
@@ -70,12 +98,36 @@ function App() {
         </>
       ) : (
         <>
-          {/* Header vazio para espaçamento */}
-          <header className="header-spacer"></header>
+          <header className="header-spacer">
+            <button 
+              onClick={() => {
+                localStorage.removeItem('hasPlayedWelcome');
+                setIsLoggedIn(false);
+              }}
+              style={{
+                position: 'absolute',
+                top: '10px',
+                right: '10px',
+                background: 'rgba(0, 0, 0, 0.3)',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '8px 12px',
+                color: 'white',
+                cursor: 'pointer',
+                fontSize: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+              aria-label="Sair"
+              title="Sair"
+            >
+              <i className="bi bi-box-arrow-right"></i>
+              Sair
+            </button>
+          </header>
 
-          {/* Área principal de interação */}
           <main className="main-content">
-        {/* Status do microfone */}
         <div className="status-container">
           <div 
             id="status-indicator" 
@@ -88,9 +140,7 @@ function App() {
           </div>
         </div>
 
-        {/* Botões principais */}
         <div className="buttons-container">
-          {/* Botão principal de gravação */}
           <button 
             className={`action-button main-record-button ${isRecording ? 'recording' : ''}`}
             id="recordButton" 
@@ -102,7 +152,6 @@ function App() {
         </div>
       </main>
 
-      {/* Animação de carregamento enquanto gera áudio */}
       {isGeneratingAudio && (
         <div className="loading-animation-overlay">
           <div className="loading-animation">
@@ -116,7 +165,6 @@ function App() {
         </div>
       )}
 
-      {/* Lista de Lembretes - só mostra quando não está carregando */}
       {showRemindersList && reminders.length > 0 && (
         <div className="reminders-list-container">
           <div className="reminders-header">
@@ -135,7 +183,7 @@ function App() {
                 ...reminder,
                 urgency: calculateReminderUrgency(reminder.date, reminder.time)
               }))
-              .sort((a, b) => b.urgency - a.urgency) // Ordenar por urgência (mais urgente primeiro)
+              .sort((a, b) => b.urgency - a.urgency)
               .map((reminder, index) => {
               const reminderId = reminder.id || reminder.name;
               const isLoading = loadingReminderId === reminderId;
@@ -158,19 +206,27 @@ function App() {
                   <p className="reminder-datetime">
                     <i className="bi bi-calendar3"></i> {formatDateForDisplay(reminder.date)} às {reminder.time}
                   </p>
-                  {/* Animação de áudio tocando */}
                   {isLoading && (
-                    <div className="reminder-audio-animation-container">
-                      <div className="audio-wave-animation">
-                        <div className="audio-wave-bar"></div>
-                        <div className="audio-wave-bar"></div>
-                        <div className="audio-wave-bar"></div>
-                        <div className="audio-wave-bar"></div>
-                        <div className="audio-wave-bar"></div>
-                        <div className="audio-wave-bar"></div>
-                        <div className="audio-wave-bar"></div>
-                        <div className="audio-wave-bar"></div>
-                      </div>
+                    <div style={{ 
+                      display: 'flex', 
+                      justifyContent: 'center', 
+                      alignItems: 'center',
+                      marginTop: '10px'
+                    }}>
+                      <div style={{
+                        width: '40px',
+                        height: '40px',
+                        border: '4px solid #f3f4f6',
+                        borderTop: '4px solid #3b82f6',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                      }}></div>
+                      <style>{`
+                        @keyframes spin {
+                          0% { transform: rotate(0deg); }
+                          100% { transform: rotate(360deg); }
+                        }
+                      `}</style>
                     </div>
                   )}
                 </div>
@@ -200,7 +256,6 @@ function App() {
         </div>
       )}
 
-      {/* Animação de sucesso */}
       {showSuccessAnimation && (
         <div className="success-animation-overlay">
           <div className="success-animation">
@@ -216,7 +271,6 @@ function App() {
         </div>
       )}
 
-      {/* Área de feedback visual (minimalista) */}
       <div className="feedback-container" id="feedbackContainer">
         {feedback?.type === 'json' ? (
           <pre className="feedback-json">

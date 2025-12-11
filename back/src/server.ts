@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import reminderRouter from "./routes/reminder.route";
+import { authRouter } from "./routes/auth.route";
 import cors from "cors";
 
 const app = express();
@@ -13,6 +14,7 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 app.use("/api/reminders", reminderRouter);
+app.use("/api/auth", authRouter);
 
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);

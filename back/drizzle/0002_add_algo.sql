@@ -1,0 +1,1 @@
+ALTER TABLE "authenticators" ADD COLUMN "algorithm" varchar(50) DEFAULT 'ES256' NOT NULL;

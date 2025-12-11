@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
+    "@passwordless-id/webauthn": "^2.3.1",
     "@shofipwk/tiktok-tts": "^1.1.16",
     "@tailwindcss/postcss": "^4.1.17",
     "lucide-react": "^0.555.0",

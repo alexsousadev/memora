@@ -1,4 +1,3 @@
-// Configurações
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ConversationState, AudioFileMap, ReminderPayload } from '../types';
 import { normalizeTimePt, normalizeDatePt, formatDateForSpeech, translateWeekdaysToPt } from '../utils/dateUtils';
@@ -24,6 +23,7 @@ const AUDIO_FILES: AudioFileMap = {
     reminderCreated: 'criamos_lembrete.wav',
     wantToDelete: 'quer_apagar.wav',
     deleted: 'apagou.wav',
+    noReminders: 'sem_lembretes.wav',
     presentation1: 'apresentacao1.wav',
     presentation2: 'apresentacao2.wav',
     presentation3: 'apresentacao3.wav',
@@ -31,8 +31,32 @@ const AUDIO_FILES: AudioFileMap = {
     presentation5: 'apresentacao5.wav'
 };
 
+const SYSTEM_PHRASES = [
+    'estou ouvindo',
+    'por favor repita',
+    'bem vindo',
+    'qual o nome',
+    'que dia',
+    'que horas',
+    'cancelado',
+    'criamos lembrete',
+    'lembrete criado',
+    'você tem',
+    'não entendi',
+    'deseja excluir',
+    'repetir',
+    'dias da semana',
+    'confirmar',
+    'apresentacao',
+    'ola eu sou a memora'
+];
+
+function filterSystemPhrases(text: string): boolean {
+    const lower = text.toLowerCase().trim();
+    return SYSTEM_PHRASES.some(phrase => lower.includes(phrase));
+}
+
 export function useSpeechAssistant() {
-    // Estado da UI
     const [status, setStatus] = useState<'ready' | 'recording' | 'processing'>('ready');
     const [feedback, setFeedback] = useState<{ message: string; type: 'info' | 'success' | 'error' | 'json' } | null>(null);
     const [isRecording, setIsRecording] = useState(false);
@@ -46,7 +70,6 @@ export function useSpeechAssistant() {
     const [shouldPlayLoadingAudio, setShouldPlayLoadingAudio] = useState(true);
     const [deleteConfirmation, setDeleteConfirmation] = useState<{ name: string; id: string | number } | null>(null);
     
-    // Refs para persistência
     const currentStream = useRef<MediaStream | null>(null);
     const recognition = useRef<any>(null);
     const audioCache = useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -60,7 +83,6 @@ export function useSpeechAssistant() {
     const lastProcessedText = useRef<string | null>(null);
     const lastProcessedState = useRef<ConversationState | null>(null);
     const listeningAudioEndTime = useRef<number | null>(null);
-    const pendingRecognizedTexts = useRef<string[]>([]); // Array para acumular todas as frases
     const microphoneClickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const hasClickedMicrophoneRef = useRef(false);
     const presentationAudioPlayedRef = useRef(false);
@@ -77,13 +99,11 @@ export function useSpeechAssistant() {
         }
     }, []);
 
-    // Função para converter PCM para WAV no navegador
     const pcmToWav = useCallback((pcmData: Uint8Array, sampleRate: number = 24000, channels: number = 1): Blob => {
         const length = pcmData.length;
         const buffer = new ArrayBuffer(44 + length);
         const view = new DataView(buffer);
         
-        // WAV header
         const writeString = (offset: number, string: string) => {
             for (let i = 0; i < string.length; i++) {
                 view.setUint8(offset + i, string.charCodeAt(i));
@@ -94,30 +114,27 @@ export function useSpeechAssistant() {
         view.setUint32(4, 36 + length, true);
         writeString(8, 'WAVE');
         writeString(12, 'fmt ');
-        view.setUint32(16, 16, true); // fmt chunk size
-        view.setUint16(20, 1, true); // audio format (1 = PCM)
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
         view.setUint16(22, channels, true);
         view.setUint32(24, sampleRate, true);
-        view.setUint32(28, sampleRate * channels * 2, true); // byte rate
-        view.setUint16(32, channels * 2, true); // block align
-        view.setUint16(34, 16, true); // bits per sample
+        view.setUint32(28, sampleRate * channels * 2, true);
+        view.setUint16(32, channels * 2, true);
+        view.setUint16(34, 16, true);
         writeString(36, 'data');
         view.setUint32(40, length, true);
         
-        // Copy PCM data
         const pcmView = new Uint8Array(buffer, 44);
         pcmView.set(pcmData);
         
         return new Blob([buffer], { type: 'audio/wav' });
     }, []);
 
-    // Google Gemini TTS usando API REST diretamente
     const speakWithGeminiTTS = useCallback(async (text: string): Promise<void> => {
         if (!CONFIG.googleApiKey) {
             throw new Error('Google API Key não configurada');
         }
 
-        // Mostrar animação de carregamento
         setStatus('processing');
         setIsGeneratingAudio(true);
 
@@ -163,31 +180,26 @@ export function useSpeechAssistant() {
                 throw new Error('Resposta inválida do Gemini TTS');
             }
 
-            // Decodificar base64 para PCM (s16le, 24000Hz, mono)
             const binaryString = atob(base64Data);
             const pcmData = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
                 pcmData[i] = binaryString.charCodeAt(i);
             }
 
-            // Converter PCM para WAV
             const wavBlob = pcmToWav(pcmData, 24000, 1);
             const audioUrl = window.URL.createObjectURL(wavBlob);
 
-            // Criar elemento de áudio e aguardar carregamento
             return new Promise((resolve, reject) => {
                 const audio = new Audio();
                 audio.src = audioUrl;
                 audio.volume = 1.0;
                 
-                // Aguardar o áudio carregar antes de tentar reproduzir
                 audio.addEventListener('loadeddata', () => {
                     stopOutputAudio();
                     currentPlayingAudio.current = audio;
-                    setStatus('ready'); // Mudar para ready quando começar a tocar
-                    setIsGeneratingAudio(false); // Parar animação de carregamento quando áudio estiver pronto
+                    setStatus('ready');
+                    setIsGeneratingAudio(false);
                     audio.play().then(() => {
-                        // Áudio iniciado com sucesso
                     }).catch((playError) => {
                         console.error('Erro ao reproduzir áudio:', playError);
                         setStatus('ready');
@@ -198,6 +210,9 @@ export function useSpeechAssistant() {
                 }, { once: true });
                 
                 audio.addEventListener('ended', () => {
+                    if (currentPlayingAudio.current === audio) {
+                        currentPlayingAudio.current = null;
+                    }
                     window.URL.revokeObjectURL(audioUrl);
                     resolve();
                 }, { once: true });
@@ -209,13 +224,15 @@ export function useSpeechAssistant() {
                         networkState: audio.networkState,
                         readyState: audio.readyState
                     });
+                    if (currentPlayingAudio.current === audio) {
+                        currentPlayingAudio.current = null;
+                    }
                     setStatus('ready');
                     setIsGeneratingAudio(false);
                     window.URL.revokeObjectURL(audioUrl);
                     reject(new Error(`Erro ao carregar áudio: ${audio.error?.message || 'Erro desconhecido'}`));
                 }, { once: true });
 
-                // Tentar carregar o áudio
                 audio.load();
             });
         } catch (error) {
@@ -228,9 +245,7 @@ export function useSpeechAssistant() {
      
 
 
-    // Função para usar APENAS Gemini (sem fallback para navegador)
     const speakWithGeminiOnly = useCallback(async (text: string, waitForCurrentAudio = true): Promise<void> => {
-        // Se waitForCurrentAudio for true, aguardar o áudio atual terminar antes de começar
         if (waitForCurrentAudio && currentPlayingAudio.current) {
             await new Promise<void>((resolve) => {
                 const checkAudio = () => {
@@ -246,29 +261,24 @@ export function useSpeechAssistant() {
         
         stopOutputAudio();
         
-        // Usar APENAS Gemini - sem fallback
         if (!CONFIG.googleApiKey) {
             throw new Error('Google API Key não configurada - não é possível usar Gemini TTS');
         }
         
         try {
-            // Criar uma Promise com timeout para o Gemini
             const geminiPromise = speakWithGeminiTTS(text);
             const timeoutPromise = new Promise<void>((_, reject) => {
-                setTimeout(() => reject(new Error('Timeout')), 20000); // 20 segundos de timeout
+                setTimeout(() => reject(new Error('Timeout')), 20000);
             });
             
-            // Tentar usar Gemini com timeout
             await Promise.race([geminiPromise, timeoutPromise]);
         } catch (error) {
             console.error('Erro ao usar Gemini TTS (sem fallback):', error);
-            throw error; // Lançar erro ao invés de usar fallback
+            throw error;
         }
     }, [speakWithGeminiTTS, stopOutputAudio]);
 
-    // TTS com fallback (prioridade: Gemini > SpeechSynthesis)
     const speakText = useCallback(async (text: string, waitForCurrentAudio = true): Promise<void> => {
-        // Se waitForCurrentAudio for true, aguardar o áudio atual terminar antes de começar
         if (waitForCurrentAudio && currentPlayingAudio.current) {
             await new Promise<void>((resolve) => {
                 const checkAudio = () => {
@@ -284,28 +294,23 @@ export function useSpeechAssistant() {
         
         stopOutputAudio();
         
-        // 1. SEMPRE tentar usar Google Gemini TTS primeiro (mais natural)
         if (CONFIG.googleApiKey) {
             try {
-                // Criar uma Promise com timeout para o Gemini
                 const geminiPromise = speakWithGeminiTTS(text);
                 const timeoutPromise = new Promise<void>((_, reject) => {
-                    setTimeout(() => reject(new Error('Timeout')), 15000); // 15 segundos de timeout
+                    setTimeout(() => reject(new Error('Timeout')), 15000);
                 });
                 
-                // Tentar usar Gemini com timeout
                 await Promise.race([geminiPromise, timeoutPromise]);
-                return; // Se Gemini funcionou, retornar
+                return;
             } catch (error) {
                 console.log('Gemini TTS falhou ou demorou muito, aguardando um pouco antes do fallback:', error);
-                // Aguardar um pouco antes de usar o fallback
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
         } else {
             console.log('Gemini TTS não configurado (sem API key), usando SpeechSynthesis');
         }
         
-        // 2. Fallback: SpeechSynthesis do navegador (só se Gemini falhar ou demorar muito)
         return new Promise((resolve) => {
             const speak = () => {
                 const naturalText = text
@@ -384,15 +389,13 @@ export function useSpeechAssistant() {
                 audioCache.current.set(audioKey, audio);
             }
 
-            // Garantir que audio não é undefined
             if (!audio) {
                 resolve();
                 return;
             }
 
-            const audioToPlay = audio; // Capturar referência para usar dentro da função
+            const audioToPlay = audio;
 
-            // Aguardar qualquer áudio atual terminar antes de tocar o próximo
             if (currentPlayingAudio.current) {
                 const waitForCurrent = () => {
                     if (!currentPlayingAudio.current) {
@@ -426,7 +429,6 @@ export function useSpeechAssistant() {
                     if (currentPlayingAudio.current === audioClone) {
                         currentPlayingAudio.current = null;
                     }
-                    // Pequeno delay para garantir que o áudio realmente terminou
                     setTimeout(() => resolve(), 100);
                 };
                 
@@ -457,7 +459,6 @@ export function useSpeechAssistant() {
         }
     }, [playAudio]);
 
-    // API Calls
     const apiCall = useCallback(async (endpoint: string, method = 'GET', body: any = null) => {
         const url = `${CONFIG.backendUrl}${endpoint}`;
         const options: RequestInit = {
@@ -478,7 +479,7 @@ export function useSpeechAssistant() {
     const handleListReminders = useCallback(async () => {
         setStatus('processing');
         setIsLoadingReminders(true);
-        setShowRemindersList(false); // Garantir que a lista não está visível durante o carregamento
+        setShowRemindersList(false);
         
         try {
             const fetchedReminders = await apiCall('/reminders', 'GET');
@@ -488,20 +489,16 @@ export function useSpeechAssistant() {
                 const message = count === 1 
                     ? 'Você tem 1 lembrete.' 
                     : `Você tem ${count} lembretes.`;
-                // Usar APENAS Gemini para essa mensagem (sem fallback para navegador)
                 try {
                     await speakWithGeminiOnly(message);
                     
-                    // Aguardar o áudio terminar completamente antes de mostrar a lista
                     await new Promise<void>((resolve) => {
                         const checkAudioEnded = () => {
                             if (!currentPlayingAudio.current) {
-                                // Áudio terminou, aguardar um pouco mais para garantir
                                 setTimeout(() => {
                                     resolve();
                                 }, 300);
                             } else {
-                                // Ainda está tocando, verificar novamente
                                 setTimeout(checkAudioEnded, 100);
                             }
                         };
@@ -509,39 +506,21 @@ export function useSpeechAssistant() {
                     });
                 } catch (error) {
                     console.error('Erro ao usar Gemini para mensagem de lembretes:', error);
-                    // Se falhar, aguardar um pouco antes de mostrar a lista
                     await new Promise(resolve => setTimeout(resolve, 1000));
                 }
-                // Mostrar a lista apenas depois que o áudio terminar completamente
                 setIsLoadingReminders(false);
                 setShowRemindersList(true);
             } else {
                 setReminders([]);
-                // Usar APENAS Gemini para essa mensagem também
                 try {
-                    await speakWithGeminiOnly('Você não tem lembretes.');
-                    
-                    // Aguardar o áudio terminar completamente
-                    await new Promise<void>((resolve) => {
-                        const checkAudioEnded = () => {
-                            if (!currentPlayingAudio.current) {
-                                setTimeout(() => {
-                                    resolve();
-                                }, 300);
-                            } else {
-                                setTimeout(checkAudioEnded, 100);
-                            }
-                        };
-                        checkAudioEnded();
-                    });
+                    await playAudio('noReminders');
                 } catch (error) {
-                    console.error('Erro ao usar Gemini para mensagem de sem lembretes:', error);
+                    console.error('Erro ao tocar áudio de sem lembretes:', error);
                 }
                 setIsLoadingReminders(false);
                 setShowRemindersList(false);
             }
         } catch (e) {
-             // Em caso de erro, não falar nada (não usar fallback)
              console.error('Erro ao listar lembretes:', e);
              setReminders([]);
              setIsLoadingReminders(false);
@@ -556,7 +535,6 @@ export function useSpeechAssistant() {
             const fetchedReminders = await apiCall('/reminders', 'GET');
             if (Array.isArray(fetchedReminders)) {
                 setReminders(fetchedReminders);
-                // Só mostra a lista se não for silencioso e tiver lembretes
                 if (!silent && fetchedReminders.length > 0) {
                     setShowRemindersList(true);
                 }
@@ -570,7 +548,6 @@ export function useSpeechAssistant() {
         const reminderId = reminder.id || reminder.name;
         setLoadingReminderId(reminderId);
         
-        // Não tocar o áudio de carregamento quando for escutar um lembrete específico
         setShouldPlayLoadingAudio(false);
         
         try {
@@ -582,17 +559,13 @@ export function useSpeechAssistant() {
                 message += ` Este lembrete se repete nos seguintes dias: ${days}.`;
             }
             
-            // Aguardar um pouco para mostrar a animação de carregamento
             await new Promise(resolve => setTimeout(resolve, 300));
             
-            // Usar speakText que sempre tenta Gemini primeiro
-            // A função speakText já garante que o Gemini seja usado quando disponível
             await speakText(message, false);
         } finally {
-            // Aguardar mais tempo antes de remover a animação para garantir que o áudio começou a tocar
             setTimeout(() => {
                 setLoadingReminderId(null);
-                setShouldPlayLoadingAudio(true); // Reativar o áudio de carregamento para outras situações
+                setShouldPlayLoadingAudio(true);
             }, 800);
         }
     }, [speakText]);
@@ -602,11 +575,9 @@ export function useSpeechAssistant() {
     }, []);
     
     const handleDeleteReminder = useCallback(async (name: string) => {
-        // Encontrar o lembrete para pegar o ID
         const reminder = reminders.find(r => r.name === name);
         const reminderId = reminder?.id || reminder?.name || name;
         
-        // Mostrar confirmação e tocar áudio "quer apagar"
         setDeleteConfirmation({ name, id: reminderId });
         
         try {
@@ -619,15 +590,13 @@ export function useSpeechAssistant() {
     const confirmDeleteReminder = useCallback(async () => {
         if (!deleteConfirmation) return;
         
-        // Fechar a janela de confirmação imediatamente
         const reminderName = deleteConfirmation.name;
         setDeleteConfirmation(null);
         
         try {
             await apiCall('/reminders', 'DELETE', { name: reminderName });
-            await loadReminders(); // Recarregar lista
+            await loadReminders();
             
-            // Tocar áudio "apagou"
             try {
                 await playAudio('deleted', 1.0);
             } catch (e) {
@@ -653,7 +622,6 @@ export function useSpeechAssistant() {
         }
 
         try {
-            // Payload no formato do schema do banco de dados
             const payload = {
                 name: data.name,
                 date: data.date,
@@ -664,15 +632,13 @@ export function useSpeechAssistant() {
 
             console.log('💾 Salvando no backend:', JSON.stringify(payload, null, 2));
             await createReminderAPI(payload);
-            await loadReminders(); // Recarregar lista
+            await loadReminders();
             
-            // Mostrar animação de sucesso
             setShowSuccessAnimation(true);
             setTimeout(() => {
                 setShowSuccessAnimation(false);
             }, 3000);
             
-            // Tocar apenas o áudio de lembrete criado (sem ler a mensagem)
             try {
                 await playAudio('reminderCreated', 1.0);
             } catch (e) {
@@ -691,7 +657,6 @@ export function useSpeechAssistant() {
         }
     }, [createReminderAPI, speakText, loadReminders]);
 
-    // Função para formatar texto em Title Case (ex: "remédio de pressão" -> "Remédio de Pressão")
     const formatTitleCase = useCallback((text: string): string => {
         if (!text) return text;
         return text
@@ -703,18 +668,15 @@ export function useSpeechAssistant() {
             .join(' ');
     }, []);
 
-    // Função para interpretar comando completo em uma frase
     const interpretFullCommand = useCallback((text: string): ReminderPayload | null => {
         const lowerText = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         
-        // Detectar se é um comando de criação completo
         if (!lowerText.includes('criar') && !lowerText.includes('lembrete')) {
             return null;
         }
 
         const result: any = {};
 
-        // Extrair NOME do lembrete (tudo entre "criar lembrete" e indicadores temporais)
         const namePatterns = [
             /criar\s+(?:um|lembrete|um\s+lembrete)?\s*(?:sobre|de|para|do|da)?\s*([^0-9]+?)(?:\s+(?:as|às|na|no|dia|amanha|amanhã|hoje|segunda|terca|terça|quarta|quinta|sexta|sabado|sábado|domingo))/i,
             /criar\s+(?:um|lembrete|um\s+lembrete)?\s*(?:sobre|de|para|do|da)?\s*(.+?)(?:\s+(?:as|às|na|no|dia|amanha|amanhã|hoje))/i,
@@ -729,7 +691,6 @@ export function useSpeechAssistant() {
             }
         }
 
-        // Extrair HORA (formato HH:MM ou "X horas")
         const timePatterns = [
             /(?:as|às)\s+(\d{1,2}):(\d{2})/i,
             /(?:as|às)\s+(\d{1,2})\s*(?:horas?|h)/i,
@@ -746,7 +707,6 @@ export function useSpeechAssistant() {
             }
         }
 
-        // Extrair DIAS DA SEMANA
         const weekdaysMap: { [key: string]: string } = {
             'segunda': 'monday',
             'terca': 'tuesday',
@@ -776,7 +736,6 @@ export function useSpeechAssistant() {
             result.repeatDays = null;
         }
 
-        // Extrair DATA (se não tiver dias da semana)
         if (foundDays.length === 0) {
             const datePatterns = [
                 /(?:dia|no)\s+(\d{1,2})\s+de\s+(janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/i,
@@ -791,7 +750,6 @@ export function useSpeechAssistant() {
                 }
             }
             
-            // Verificar "hoje" ou "amanhã"
             if (!result.date) {
                 if (lowerText.includes('hoje')) {
                     result.date = normalizeDatePt('hoje');
@@ -801,11 +759,9 @@ export function useSpeechAssistant() {
             }
         }
 
-        // Se tiver dias da semana, calcular próxima ocorrência
         if (foundDays.length > 0 && !result.date) {
-            // Pegar o primeiro dia da semana mencionado e calcular a próxima data
             const today = new Date();
-            const currentDay = today.getDay(); // 0 = domingo, 1 = segunda, etc
+            const currentDay = today.getDay(); 
             
             const dayMap: { [key: string]: number } = {
                 'sunday': 0,
@@ -830,17 +786,14 @@ export function useSpeechAssistant() {
             result.date = `${yyyy}-${mm}-${dd}`;
         }
 
-        // Validar se temos pelo menos nome e hora
         if (!result.name || !result.time) {
             return null;
         }
 
-        // Se não tiver data, usar hoje
         if (!result.date) {
             result.date = normalizeDatePt('hoje');
         }
 
-        // Organizar no formato do schema do banco de dados
         const reminderPayload = {
             name: formatTitleCase(result.name),
             date: result.date,
@@ -857,6 +810,23 @@ export function useSpeechAssistant() {
 
     const processRecognizedText = useCallback(async (text: string) => {
         console.log('🔍 processRecognizedText chamado com:', text);
+        
+        if (filterSystemPhrases(text)) {
+            console.warn('🔇 Ignorando frase do sistema (auto-escuta):', text);
+            return;
+        }
+        
+        if (['parar', 'cancelar', 'chega', 'silencio', 'silêncio'].includes(text.toLowerCase().trim())) {
+            stopOutputAudio();
+            if (isRecordingRef.current) {
+                if (recognition.current) try { recognition.current.stop(); } catch {}
+                isRecordingRef.current = false;
+                setIsRecording(false);
+            }
+            setStatus('ready');
+            return;
+        }
+
         if (!text || text.trim().length < 2) {
             console.log('⚠️ Texto muito curto, ignorando...');
             return;
@@ -864,12 +834,31 @@ export function useSpeechAssistant() {
 
         const normalizedText = text.trim().toLowerCase();
         
-        // Evitar reprocessamento
         if (lastProcessedText.current && lastProcessedState.current && 
             lastProcessedState.current !== conversationState) {
             const lastProcessedNormalized = lastProcessedText.current.toLowerCase().trim();
+            
             if (normalizedText === lastProcessedNormalized) {
                 console.log(`⚠️ Texto duplicado ignorado`);
+                return;
+            }
+            
+            if (normalizedText.includes(lastProcessedNormalized) && lastProcessedNormalized.length > 5) {
+                const additionalText = normalizedText.replace(lastProcessedNormalized, '').trim();
+                if (additionalText.length < 3) {
+                    console.log(`⚠️ Texto duplicado confirmado, ignorando...`);
+                    return;
+                }
+            }
+        }
+
+        if (currentPlayingAudio.current && recordingStartTime.current) {
+            const timeSinceStart = Date.now() - recordingStartTime.current;
+            const isException = normalizedText.includes('sim') || normalizedText.includes('não') || 
+                              /\d/.test(normalizedText);
+            
+            if (!isException && timeSinceStart < 5000) {
+                console.log('⚠️ Sistema está reproduzindo áudio, ignorando texto capturado para evitar eco.');
                 return;
             }
         }
@@ -882,21 +871,17 @@ export function useSpeechAssistant() {
 
         const lowerText = normalizedText.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-        // Estados de comando principal
         if (conversationState === 'listening' || conversationState === 'welcome') {
-            // NOVO: Tentar interpretar comando completo primeiro
             const fullCommand = interpretFullCommand(text);
             if (fullCommand) {
                 console.log('🎯 Comando completo detectado!');
                 
-                // Salvar diretamente (sem mostrar JSON)
                 currentReminderData.current = fullCommand;
                 await saveReminder();
                 setStatus('ready');
                 return;
             }
             
-            // Fallback: fluxo guiado
             if (lowerText.includes('criar')) {
                 currentReminderData.current = {};
                 setConversationState('reminder_name');
@@ -908,7 +893,6 @@ export function useSpeechAssistant() {
                 await new Promise(r => setTimeout(r, 1000));
                 startRecording();
             } else if (
-                // Comandos diretos de listagem - sempre acionam, mesmo sem "lembrete"
                 lowerText.includes('listar') || 
                 lowerText.includes('lista') ||
                 lowerText.includes('listar lembretes') ||
@@ -917,13 +901,11 @@ export function useSpeechAssistant() {
                 lowerText.includes('lista meus lembretes') ||
                 lowerText.includes('listar todos os lembretes') ||
                 lowerText.includes('lista todos os lembretes') ||
-                // Comandos de visualização - sempre acionam, mesmo sem "lembrete"
                 lowerText.includes('ver') ||
                 lowerText.includes('ver lembretes') ||
                 lowerText.includes('ver meus lembretes') ||
                 lowerText.includes('ver todos os lembretes') ||
                 lowerText.includes('ver os lembretes') ||
-                // Comandos de mostrar/exibir - sempre acionam, mesmo sem "lembrete"
                 lowerText.includes('mostrar') ||
                 lowerText.includes('mostre') ||
                 lowerText.includes('mostrar lembretes') ||
@@ -932,11 +914,9 @@ export function useSpeechAssistant() {
                 lowerText.includes('mostre meus lembretes') ||
                 lowerText.includes('mostrar os lembretes') ||
                 lowerText.includes('mostre os lembretes') ||
-                // Comandos de exibir
                 lowerText.includes('exibir') ||
                 lowerText.includes('exibir lembretes') ||
                 lowerText.includes('exibir meus lembretes') ||
-                // Perguntas sobre lembretes
                 lowerText.includes('meus lembretes') ||
                 lowerText.includes('todos os lembretes') ||
                 lowerText.includes('os lembretes') ||
@@ -946,14 +926,11 @@ export function useSpeechAssistant() {
                 lowerText.includes('quais meus lembretes') ||
                 lowerText.includes('que lembretes') ||
                 lowerText.includes('que lembretes tenho') ||
-                // Variações com "tenho" ou "existe"
                 (lowerText.includes('lembrete') && (lowerText.includes('tenho') || lowerText.includes('existe') || lowerText.includes('tem'))) ||
-                // Comandos específicos
                 lowerText.includes('quero ver meus lembretes') ||
                 lowerText.includes('quero ver os lembretes') ||
                 lowerText.includes('quero listar lembretes') ||
                 lowerText.includes('quero lista lembretes') ||
-                // Variações com "quantos"
                 (lowerText.includes('quantos lembretes') && (lowerText.includes('tenho') || lowerText.includes('tem')))
             ) {
                 await handleListReminders();
@@ -973,7 +950,6 @@ export function useSpeechAssistant() {
             return;
         }
 
-        // Fluxo de criação
         if (conversationState === 'reminder_name') {
             currentReminderData.current.name = formatTitleCase(text.trim());
             console.log('✅ Nome:', currentReminderData.current.name);
@@ -1053,7 +1029,6 @@ export function useSpeechAssistant() {
         setStatus('ready');
     }, [conversationState, handleListReminders, handleDeleteReminder, saveReminder, playAudioFast, speakText, stopOutputAudio, formatTitleCase]);
 
-    // Check Permission
     const checkMicrophonePermission = useCallback(async () => {
         if (microphonePermissionChecked.current) return microphonePermissionGranted.current;
         microphonePermissionChecked.current = true;
@@ -1071,172 +1046,18 @@ export function useSpeechAssistant() {
         }
     }, [speakText]);
 
-    // Start Recording com SpeechRecognition
-    const startRecording = useCallback(async () => {
-        if (isRecordingRef.current) return;
-        
-        if (recognition.current) {
-            try {
-                recognition.current.abort();
-            } catch {}
-            recognition.current = null;
-        }
-
-        // Parar qualquer áudio que esteja tocando antes de iniciar gravação
-        stopOutputAudio();
-        
-        // Limpar textos pendentes ao iniciar nova gravação
-        pendingRecognizedTexts.current = [];
-        
-        isRecordingRef.current = true;
-        setIsRecording(true);
-        setStatus('recording');
-
-        if (!currentStream.current || !currentStream.current.active) {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    } 
-                });
-                currentStream.current = stream;
-                microphonePermissionGranted.current = true;
-            } catch (e) {
-                console.error('Mic error:', e);
-                await speakText('Não consegui acessar o microfone.');
-                isRecordingRef.current = false;
-                setIsRecording(false);
-                setStatus('ready');
-                return;
-            }
-        }
-
-        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            await speakText('Seu navegador não suporta reconhecimento de fala.');
-            isRecordingRef.current = false;
-            setIsRecording(false);
-            setStatus('ready');
-            return;
-        }
-
-        const rec = new SpeechRecognition();
-        rec.interimResults = false;
-        rec.lang = 'pt-BR';
-        rec.continuous = true; // Mudar para true para continuar reconhecendo até o usuário clicar novamente
-        rec.maxAlternatives = 1;
-
-        recordingStartTime.current = Date.now();
-
-        rec.onresult = (event: any) => {
-            const last = event.results.length - 1;
-            const spokenText = event.results[last][0].transcript.trim();
-            console.log(`🗣️ Fala reconhecida: ${spokenText}`);
-            
-            // Acumular todas as frases reconhecidas em um array
-            // A análise só acontecerá quando o usuário clicar novamente no microfone
-            // NÃO parar o reconhecimento aqui - deixar continuar até o usuário clicar novamente
-            if (spokenText && !pendingRecognizedTexts.current.includes(spokenText)) {
-                pendingRecognizedTexts.current.push(spokenText);
-                console.log(`📝 Frases acumuladas: [${pendingRecognizedTexts.current.join(', ')}]`);
-            }
-            
-            // NÃO chamar rec.stop() aqui - deixar o reconhecimento continuar
-            // O usuário deve clicar novamente no microfone para parar e processar
-        };
-
-        rec.onerror = async (event: any) => {
-            console.error('Erro no SpeechRecognition:', event.error);
-            
-            if (event.error === 'no-speech') {
-                isRecordingRef.current = false;
-                setIsRecording(false);
-                setStatus('ready');
-                return;
-            }
-            
-            if (event.error === 'aborted') return;
-            
-            if (event.error !== 'network') {
-                await playAudioFast('repeat');
-                setTimeout(() => {
-                    if (conversationState !== 'welcome' && !isRecordingRef.current) {
-                        startRecording();
-                    }
-                }, 2000);
-            }
-        };
-        
-        rec.onend = () => {
-            console.log('Reconhecimento encerrado.');
-            recordingStartTime.current = null;
-            
-            // Quando o reconhecimento termina, apenas atualizar o estado
-            // NÃO processar o texto automaticamente - isso só acontece no próximo clique
-            if (isRecordingRef.current) {
-                isRecordingRef.current = false;
-                setIsRecording(false);
-                setStatus('ready');
-            }
-            
-            // Limpar a referência do reconhecimento
-            if (recognition.current === rec) {
-                recognition.current = null;
-            }
-        };
-
-        recognition.current = rec;
-        
-        try {
-            rec.start();
-            
-            // Tocar apenas o áudio "estou ouvindo" quando iniciar a gravação
-            // Aguardar um tempo maior para garantir que outros áudios pararam completamente
-            setTimeout(async () => {
-                // Garantir que nenhum outro áudio está tocando
-                stopOutputAudio();
-                
-                // Aguardar um tempo maior para garantir que o stopOutputAudio terminou completamente
-                // e que não há outros áudios sendo iniciados
-                await new Promise(resolve => setTimeout(resolve, 400));
-                
-                // Verificar novamente se não há áudio tocando antes de tocar "estou ouvindo"
-                if (currentPlayingAudio.current) {
-                    stopOutputAudio();
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                }
-                
-                // Tocar apenas o áudio "estou ouvindo" - nenhum outro áudio deve tocar
-                try {
-                    await playAudio('listening', 1.0);
-                    listeningAudioEndTime.current = Date.now();
-                } catch (e) {
-                    console.log('Erro ao tocar áudio "estou ouvindo":', e);
-                }
-            }, 200);
-
-            setTimeout(() => {
-                if (isRecordingRef.current && rec) {
-                    rec.stop();
-                }
-            }, CONFIG.maxRecordingTime);
-            
-        } catch (e) {
-            console.error("Start error:", e);
-            isRecordingRef.current = false;
-            setIsRecording(false);
-            setStatus('ready');
-        }
-    }, [conversationState, processRecognizedText, playAudioFast, speakText, stopOutputAudio]);
-
-    // Stop Recording
     const stopRecording = useCallback(async () => {
+        console.log('🛑 Parando gravação...');
+        
         if (recognition.current) {
             try {
                 recognition.current.abort();
-            } catch {}
+            } catch (e) {
+                console.warn('Erro ao parar recognition:', e);
+            }
+            recognition.current.onresult = null;
+            recognition.current.onerror = null;
+            recognition.current.onend = null;
             recognition.current = null;
         }
         
@@ -1248,9 +1069,6 @@ export function useSpeechAssistant() {
             currentStream.current = null;
         }
         
-        // Não limpar pendingRecognizedText aqui, pois queremos processá-lo no próximo clique
-        // O texto será limpo quando iniciar nova gravação ou quando for processado
-        
         isRecordingRef.current = false;
         setIsRecording(false);
         recordingStartTime.current = null;
@@ -1261,75 +1079,206 @@ export function useSpeechAssistant() {
         return new Promise(resolve => setTimeout(resolve, 300));
     }, []);
 
+    const startRecording = useCallback(async () => {
+        if (isRecordingRef.current) {
+            console.log('Gravação já em andamento, ignorando nova tentativa.');
+            return;
+        }
+
+        if (recognition.current) {
+            try {
+                recognition.current.onresult = null;
+                recognition.current.onerror = null;
+                recognition.current.onend = null;
+                recognition.current.abort();
+            } catch (e) {
+                console.warn('Erro ao limpar recognition anterior:', e);
+            }
+            recognition.current = null;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        console.log('Iniciando gravação... Estado atual:', conversationState);
+        
+        try {
+            stopOutputAudio();
+            
+            let streamActive = false;
+            if (currentStream.current) {
+                streamActive = currentStream.current.getTracks().some(track => track.readyState === 'live');
+            }
+            
+            if (!streamActive) {
+                if (currentStream.current) {
+                    currentStream.current.getTracks().forEach(track => track.stop());
+                    currentStream.current = null;
+                }
+                
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            sampleRate: 44100,
+                            autoGainControl: true
+                        } 
+                    });
+                    currentStream.current = stream;
+                    microphonePermissionGranted.current = true;
+                    console.log('✅ Stream de microfone obtido com sucesso');
+                } catch (e) {
+                    console.error('Mic error:', e);
+                    await speakText('Não consegui acessar o microfone.');
+                    return;
+                }
+            } else {
+                console.log('✅ Reutilizando stream de microfone existente');
+            }
+
+            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                await speakText('Seu navegador não suporta reconhecimento de fala.');
+                return;
+            }
+
+            const rec = new SpeechRecognition();
+            rec.interimResults = false;
+            rec.lang = 'pt-BR';
+            rec.continuous = false; 
+            rec.maxAlternatives = 1;
+
+            recordingStartTime.current = Date.now();
+            
+            rec.onresult = (event: any) => {
+                const last = event.results.length - 1;
+                const text = event.results[last][0].transcript;
+                console.log(`🗣️ Fala reconhecida: ${text}`);
+                setFeedback({ message: `Entendi: "${text}"`, type: 'success' });
+                
+                try { rec.stop(); } catch {}
+                processRecognizedText(text);
+            };
+
+            rec.onerror = async (event: any) => {
+                console.error('Erro no SpeechRecognition:', event.error);
+                if (event.error === 'no-speech') {
+                    console.log('Nenhuma fala detectada.');
+                    isRecordingRef.current = false;
+                    setIsRecording(false);
+                    setStatus('ready');
+                    return;
+                }
+                if (event.error === 'aborted') return;
+                
+                if (event.error !== 'network' && event.error !== 'not-allowed') {
+                    await playAudioFast('repeat');
+                }
+                isRecordingRef.current = false;
+                setIsRecording(false);
+                setStatus('ready');
+            };
+            
+            rec.onend = () => {
+                console.log('Reconhecimento encerrado (onend).');
+                recordingStartTime.current = null;
+                if (isRecordingRef.current) {
+                    isRecordingRef.current = false;
+                    setIsRecording(false);
+                    setStatus('ready');
+                }
+                if (recognition.current === rec) {
+                    recognition.current = null;
+                }
+            };
+
+            recognition.current = rec;
+            
+            await new Promise(resolve => setTimeout(resolve, 200));
+            rec.start();
+            isRecordingRef.current = true;
+            setIsRecording(true);
+            setStatus('recording');
+            setFeedback({ message: 'Ouvindo...', type: 'info' });
+            console.log('Gravação iniciada com sucesso.');
+            
+            setTimeout(async () => {
+                try {
+                    await playAudioFast('listening');
+                    listeningAudioEndTime.current = Date.now();
+                } catch (e) { 
+                    listeningAudioEndTime.current = Date.now();
+                }
+            }, 100);
+
+            setTimeout(() => {
+                if (isRecordingRef.current && recognition.current === rec) {
+                    try { rec.stop(); } catch {}
+                }
+            }, CONFIG.maxRecordingTime);
+            
+        } catch (error) {
+            console.error('Erro ao iniciar gravação:', error);
+            await playAudioFast('repeat');
+            isRecordingRef.current = false;
+            setIsRecording(false);
+            setStatus('ready');
+        }
+    }, [conversationState, processRecognizedText, playAudioFast, speakText, stopOutputAudio, stopRecording]);
+
     const playWelcomeSequence = useCallback(async () => {
-        // Verificar se já tocou algum áudio de apresentação (usando lock para evitar race condition)
-        // Esta verificação deve ser a PRIMEIRA coisa, antes de qualquer delay
         if (presentationAudioPlayedRef.current) {
             console.log('Áudio de apresentação já foi tocado, ignorando chamada duplicada...');
             return;
         }
         
-        // Marcar IMEDIATAMENTE antes de qualquer coisa para evitar race conditions
-        // Esta é a única linha que deve executar antes da verificação acima
         presentationAudioPlayedRef.current = true;
         welcomePlayedRef.current = true;
         
-        // Cancelar o timer de 30 segundos se ainda estiver ativo
         if (microphoneClickTimeoutRef.current) {
             clearTimeout(microphoneClickTimeoutRef.current);
             microphoneClickTimeoutRef.current = null;
         }
         
-        // Cancelar o timeout inicial também
         if (initialWelcomeTimeoutRef.current) {
             clearTimeout(initialWelcomeTimeoutRef.current);
             initialWelcomeTimeoutRef.current = null;
         }
         
-        // Aguardar um tempo antes de tocar para evitar conflitos com outros áudios
         await new Promise(resolve => setTimeout(resolve, 200));
         
-        // Verificar novamente se ainda não tocou (double check após o delay)
-        // Se outro áudio estiver tocando, não tocar o de apresentação
         if (currentPlayingAudio.current) {
             console.log('Áudio já está tocando, cancelando apresentação...');
-            presentationAudioPlayedRef.current = false; // Resetar para permitir tentar depois
+            presentationAudioPlayedRef.current = false;
             return;
         }
         
-        // Verificar uma última vez se a flag ainda está ativa (triple check)
         if (!presentationAudioPlayedRef.current) {
             console.log('Flag foi resetada, cancelando apresentação...');
             return;
         }
         
         try {
-            // Sempre usar apenas apresentacao5
             await playAudio('presentation5', 1.0);
             setConversationState('listening');
         } catch (e) {
-            // Se falhar, resetar a flag para permitir tentar novamente
             console.log('Erro ao tocar áudio de apresentação:', e);
             presentationAudioPlayedRef.current = false;
             setConversationState('listening');
         }
     }, [playAudio]);
 
-    // Tocar áudio de carregamento quando isGeneratingAudio for true (mas não quando for para escutar lembrete)
     useEffect(() => {
         if (isGeneratingAudio && shouldPlayLoadingAudio) {
             playAudio('loading', 1.0).catch(() => {
-                // Se falhar, não faz nada - o áudio é opcional
             });
         }
     }, [isGeneratingAudio, shouldPlayLoadingAudio, playAudio]);
 
-    // Init
     useEffect(() => {
         checkMicrophonePermission();
         loadReminders();
         
-        // Aguardar um pouco antes de tocar o áudio de apresentação inicial
         initialWelcomeTimeoutRef.current = setTimeout(() => {
             if (!presentationAudioPlayedRef.current) {
                 playWelcomeSequence().catch(() => {
@@ -1345,28 +1294,21 @@ export function useSpeechAssistant() {
         });
         
         const unlock = () => {
-            // Cancelar o timeout inicial se ainda não executou
             if (initialWelcomeTimeoutRef.current) {
                 clearTimeout(initialWelcomeTimeoutRef.current);
                 initialWelcomeTimeoutRef.current = null;
             }
-            
-            // Não tocar aqui - deixar apenas o timeout inicial tocar
-            // Isso evita que toque duas vezes
         };
         window.addEventListener('click', unlock, { once: true });
         
-        // Timer de 30 segundos para tocar apresentacao5 se não clicar no microfone
         microphoneClickTimeoutRef.current = setTimeout(() => {
-            // Verificar novamente antes de tocar (double check)
             if (!hasClickedMicrophoneRef.current && !presentationAudioPlayedRef.current) {
-                // Usar playWelcomeSequence para garantir que use a mesma lógica e proteções
                 playWelcomeSequence().catch(() => {
                     console.log('Erro ao tocar apresentacao5 no timeout de 30s');
                     presentationAudioPlayedRef.current = false;
                 });
             }
-        }, 30000); // 30 segundos
+        }, 30000); 
         
         return () => {
             if (recognition.current) try { recognition.current.abort(); } catch {}
@@ -1385,55 +1327,20 @@ export function useSpeechAssistant() {
         feedback,
         isRecording,
         toggleRecording: async () => {
-            console.log('🎤 toggleRecording chamado. isRecording:', isRecording, 'pendingTexts:', pendingRecognizedTexts.current);
+            console.log('🎤 toggleRecording chamado. isRecording:', isRecording);
             
-            // Marcar que o usuário clicou no microfone e limpar o timer dos 30 segundos
             hasClickedMicrophoneRef.current = true;
             if (microphoneClickTimeoutRef.current) {
                 clearTimeout(microphoneClickTimeoutRef.current);
                 microphoneClickTimeoutRef.current = null;
             }
             
-            // Parar qualquer áudio que esteja tocando antes de iniciar gravação
             stopOutputAudio();
             
             if (isRecording) {
-                // Se está gravando, parar o reconhecimento e processar os textos pendentes
-                console.log('⏹️ Parando gravação...');
-                
-                // Parar o reconhecimento primeiro
-                if (recognition.current) {
-                    try {
-                        recognition.current.stop();
-                    } catch {}
-                }
-                
                 await stopRecording();
-                
-                // Aguardar um pouco para garantir que o onresult foi chamado
-                await new Promise(r => setTimeout(r, 300));
-                
-                // Juntar todas as frases e processar
-                if (pendingRecognizedTexts.current.length > 0) {
-                    const combinedText = pendingRecognizedTexts.current.join(' ').trim();
-                    console.log('✅ Processando texto completo (juntado):', combinedText);
-                    console.log('📋 Frases individuais:', pendingRecognizedTexts.current);
-                    pendingRecognizedTexts.current = [];
-                    await processRecognizedText(combinedText);
-                }
             } else {
-                // Se não está gravando, verificar se há textos pendentes para processar
-                if (pendingRecognizedTexts.current.length > 0) {
-                    const combinedText = pendingRecognizedTexts.current.join(' ').trim();
-                    console.log('✅ Processando texto completo (juntado):', combinedText);
-                    console.log('📋 Frases individuais:', pendingRecognizedTexts.current);
-                    pendingRecognizedTexts.current = [];
-                    await processRecognizedText(combinedText);
-                } else {
-                    // Se não há texto pendente, iniciar nova gravação
-                    console.log('🎙️ Iniciando nova gravação...');
-                    startRecording();
-                }
+                await startRecording();
             }
         },
         conversationState,
