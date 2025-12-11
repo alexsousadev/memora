@@ -1,20 +1,14 @@
 {
   "name": "memora-api",
   "version": "1.0.0",
-  "main": "index.js",
-  "license": "MIT",
   "scripts": {
     "dev": "concurrently \"npm run dev --workspace=front\" \"npm run dev --workspace=back\"",
-    "build": "npm install --workspace=front && npm install --workspace=back"
+    
+    "build": "npm install && npm run build --workspace=front",
+    
+    "start": "npm start --workspace=back"
   },
-  "dependencies": {
-    "path": "^0.12.7"
-  },
-  "devDependencies": {
-    "concurrently": "^8.2.2"
-  },
-  "workspaces": [
-    "front",
-    "back"
-  ]
+  "workspaces": [ "front", "back" ],
+  "dependencies": { "path": "^0.12.7" },
+  "devDependencies": { "concurrently": "^8.2.2" }
 }
