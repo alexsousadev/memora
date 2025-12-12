@@ -271,17 +271,19 @@ function App() {
         </div>
       )}
 
-      <div className="feedback-container" id="feedbackContainer">
-        {feedback?.type === 'json' ? (
-          <pre className="feedback-json">
-            {feedback.message}
-          </pre>
-        ) : (
-          <div className={`feedback-text ${feedback?.type || ''}`} id="feedbackText">
-            {feedback?.message || ''}
-          </div>
-        )}
-      </div>
+      {feedback?.message && (
+        <div className="feedback-container" id="feedbackContainer">
+          {feedback.type === 'json' ? (
+            <pre className="feedback-json">
+              {feedback.message}
+            </pre>
+          ) : (
+            <div className={`feedback-text ${feedback.type || ''}`} id="feedbackText">
+              {feedback.message}
+            </div>
+          )}
+        </div>
+      )}
         </>
       )}
     </div>

@@ -1154,7 +1154,7 @@ export function useSpeechAssistant() {
                 const last = event.results.length - 1;
                 const text = event.results[last][0].transcript;
                 console.log(`🗣️ Fala reconhecida: ${text}`);
-                setFeedback({ message: `Entendi: "${text}"`, type: 'success' });
+                setFeedback(null);
                 
                 try { rec.stop(); } catch {}
                 processRecognizedText(text);
