@@ -21,15 +21,20 @@ npm run start
 
 ## Variáveis de ambiente
 
-Você pode ver as variáveis de ambiente no arquivo `.env.example`. Mas, basicamente você precisa configurar:
-
+### Backend (arquivo `.env` na raiz)
 ```bash
 # URL de conexão completa do Postgres
-DATABASE_URL=postgresql://usuario:senha@localhost:5432/memora
+DATABASE_URL=
 
-# Opcional: porta do servidor Express (padrão 3000)
-PORT=3000
+# Porta do servidor Express (opcional, padrão 3000)
+PORT=
 
-# Sua chave de API do Gemini
-VITE_GOOGLE_API_KEY="<sua chave>"
+# Origem permitida para WebAuthn (URL do frontend)
+ORIGIN=
+
+# Base única da API (usada em todo o frontend)
+VITE_API_URL=
+
+# Chave do Google Gemini TTS; Deixe vazio para usar fallback do navegador
+VITE_GOOGLE_API_KEY=
 ```

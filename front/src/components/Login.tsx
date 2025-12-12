@@ -6,9 +6,12 @@ interface LoginProps {
   onLoginSuccess: () => void;
 }
 
-const API_URL = import.meta.env.API_URL 
-  ? '/api/auth' 
-  : 'http://localhost:3000/api/auth';
+// Base da API vinda do env do Vite; obrigatório
+const apiBase = import.meta.env.VITE_API_URL;
+if (!apiBase) {
+  throw new Error('VITE_API_URL não configurado');
+}
+const API_URL = `${apiBase}/auth`;
 
 export function Login({ onLoginSuccess }: LoginProps) {
   const [status, setStatus] = useState<'idle' | 'loading' | 'error' | 'success'>('idle');

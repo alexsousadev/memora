@@ -2,8 +2,9 @@ import { server } from '@passwordless-id/webauthn';
 import { db } from '../database/db';
 import { users, authenticators } from '../database/schema';
 import { eq } from 'drizzle-orm';
+import envLoader from '../config/env_loader';
 
-const origin = process.env.ORIGIN || 'http://localhost:3000';
+const origin = envLoader.getEnv("ORIGIN");
 
 export class AuthService {
   static pendingChallenges = new Set<string>();

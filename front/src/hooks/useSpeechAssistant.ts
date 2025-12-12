@@ -2,11 +2,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ConversationState, AudioFileMap, ReminderPayload } from '../types';
 import { normalizeTimePt, normalizeDatePt, formatDateForSpeech, translateWeekdaysToPt } from '../utils/dateUtils';
 
+const backendUrl = import.meta.env.VITE_API_URL;
+if (!backendUrl) {
+    throw new Error('VITE_API_URL não configurado');
+}
+
 const CONFIG = {
-    backendUrl: import.meta.env.VITE_BACKEND_URL || '/api', 
+    backendUrl,
     maxRecordingTime: 30000,
     audioPath: '/',
-    googleApiKey: import.meta.env.VITE_GOOGLE_API_KEY || null
+    googleApiKey: import.meta.env.VITE_GOOGLE_API_KEY
 };
 
 const AUDIO_FILES: AudioFileMap = {
