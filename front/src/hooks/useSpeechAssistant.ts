@@ -3,7 +3,7 @@ import type { ConversationState, AudioFileMap, ReminderPayload } from '../types'
 import { normalizeTimePt, normalizeDatePt, formatDateForSpeech, translateWeekdaysToPt } from '../utils/dateUtils';
 
 const CONFIG = {
-    backendUrl: 'http://localhost:3000/api',
+    backendUrl: import.meta.env.VITE_BACKEND_URL || '/api', 
     maxRecordingTime: 30000,
     audioPath: '/',
     googleApiKey: import.meta.env.VITE_GOOGLE_API_KEY || null

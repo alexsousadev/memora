@@ -3,7 +3,7 @@ import { db } from '../database/db';
 import { users, authenticators } from '../database/schema';
 import { eq } from 'drizzle-orm';
 
-const origin = 'http://localhost:5173';
+const origin = process.env.ORIGIN || 'http://localhost:3000';
 
 export class AuthService {
   static pendingChallenges = new Set<string>();

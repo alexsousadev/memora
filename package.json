@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "concurrently \"npm run dev --workspace=front\" \"npm run dev --workspace=back\"",
-    
-    "build": "npm install && npm run build --workspace=front",
-    
+    "build": "npm install && npm run build --workspace=front", 
     "start": "npm start --workspace=back"
   },
   "workspaces": [ "front", "back" ],
